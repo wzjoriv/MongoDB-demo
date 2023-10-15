@@ -9,7 +9,7 @@ import pymongo as mg
 import json, os
 
 host:str = "mongodb://localhost:27017/"
-data_save_folder = "data/"
+data_save_folder:str = "data/"
 
 cats_api:str = "https://api.thecatapi.com/v1/images/search?limit=30"
 venue_api:str = "https://opendata.arcgis.com/api/v3/datasets/1f538e9e89e642f1b077872933401d8d_0/downloads/data?format=geojson&spatialRefId=4326&where=1=1"
@@ -26,7 +26,7 @@ def download_dataset(file_name:str, db_url: str) -> None:
 
 def load_dataset(file_name:str):
 
-    with open(os.path.join(data_save_folder, "cat_data.json"), encoding='utf-8') as json_file:
+    with open(os.path.join(data_save_folder, file_name), encoding='utf-8') as json_file:
         fl_dt = json.load(json_file)
         
     return fl_dt
@@ -37,10 +37,10 @@ def load_dataset(file_name:str):
 
 # %%
 ## Connect to Mongo 
-
+client = mg.MongoClient(host)
 
 ## Create database
-
+database = client['MyDBs']
 
 # %% [markdown]
 # ---
@@ -50,13 +50,15 @@ def load_dataset(file_name:str):
 
 # %%
 ## Download data
-
+file_name = "cat_data.json"
+download_dataset(file_name, cats_api)
 
 ## Create colelction
-
+collection = database['CATS']
+cats_info = load_dataset(file_name)
 
 ## Add many data
-
+collection.insert_many(cats_info)
 
 # %% [markdown]
 # View data in MongoDB
@@ -67,13 +69,22 @@ def load_dataset(file_name:str):
 # Get images larger than 500px in height
 
 # %%
+query = {
+    "height": {"$gt": 800} ## gt = greater than
+}
 
+list(collection.find(query, {"_id": False, "url":True}))
 
 # %% [markdown]
 # Get images with widths greater than or equals to 450px and heights less than 600px
 
 # %%
+query = {
+    "width": {"$gte": 600},
+    "height": {"$lt": 600},
+}
 
+list(collection.find(query, {"_id": False, "url":True}))
 
 # %% [markdown]
 # In mongosh:
@@ -84,11 +95,11 @@ def load_dataset(file_name:str):
 # 
 # - Get images larger than 500px in height
 #     ```
-#         db.collection('CATS').find({height: {$gt: 400}}).project({ url: 1, _id: 0 })
+#        db.CATS.find({"height": {"$gt": 500}}).projection({"url": 1, "_id": 0})
 #     ```
 # - Get images with widths greater than or equals to 450px and heights less than 600px
 #     ```
-#         db.collection('CATS').find({width: {$gte: 450}, height: {$lt: 600}}).project({ url: 1, _id: 0 })
+#         db.CATS.find({"width": {"$gte": 450}, "height": {"$lt": 600}}).projection({"url": 1, "_id": 0})
 #     ```
 
 # %% [markdown]
@@ -99,13 +110,16 @@ def load_dataset(file_name:str):
 
 # %%
 ## Download data
-
+file_name = "venue_data.json"
+download_dataset(file_name, venue_api)
 
 ## Create colelction
-
+collection = database['VENUES']
+venue_info = load_dataset(file_name)["features"]
 
 ## Add many data
-
+collection.insert_many(venue_info)
+collection.create_index([("geometry", "2dsphere")])
 
 # %% [markdown]
 # View data in MongoDB
@@ -116,24 +130,37 @@ def load_dataset(file_name:str):
 # Get all venues within 2 km from Purdue
 
 # %%
+query = {
+    "geometry": {"$near": { 
+        "$geometry":
+            {"type": 'Point', "coordinates": [-86.9206582, 40.4236401]},
+        "$maxDistance": 2000
+    }}
+}
 
+list(collection.find(query, {"properties.NAME":True, "properties.ADDRESS": True, "properties.CITY": True}))
 
 # %% [markdown]
-# Get all venues that can sits more the 5000 people
+# Get 10 venues that can sits more the 5000 people
 
 # %%
+query = {
+    "properties.STATE": "IN",
+    "properties.POPULATION": {"$gt": 5000}
+}
 
+list(collection.find(query, {"_id": False, "properties.NAME":True, "properties.ADDRESS": True, "properties.CITY": True}, limit = 10))
 
 # %% [markdown]
 # In mongosh:
 # 
 # - Get all venues within 2 km from Purdue
 #     ```
-#         db.collection('VENUES').find({geometry: {$near: { $geometry:{type: 'Point', coordinates: [-86.9206582, 40.4236401]}, $maxDistance: 2000}}}).project({ NAME: 1, ADDRESS: 1, CITY: 1})
+#         db.VENUES.find({"geometry": {"$near": { "$geometry":{"type": 'Point', "coordinates": [-86.9206582, 40.4236401]}, "$maxDistance": 2000}}}).projection({"properties.NAME": 1, "properties.ADDRESS": 1, "properties.CITY": 1})
 #     ```
 # - Get all venues that can sits more the 5000 people
 #     ```
-#         db.collection('VENUES').find({STATE: 'IN', POPULATION: {$gt: 5000}}).project({ NAME: 1, ADDRESS: 1, CITY: 1, POPULATION: 1})
+#         db.VENUES.find({"properties.STATE": "IN", "properties.POPULATION": {"$gt": 5000}}).projection({"properties.NAME": 1, "properties.ADDRESS": 1, "properties.CITY": 1})
 #     ```
 
 
